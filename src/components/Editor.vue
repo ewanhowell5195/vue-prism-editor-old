@@ -1,42 +1,51 @@
 <template>
-  <div class="prism-editor-wrapper">
-    <div
-      class="prism-editor__line-numbers"
-      aria-hidden="true"
-      v-if="lineNumbers"
-      :style="{ 'min-height': lineNumbersHeight }"
-    >
+  <div class="prism-editor-component">
+    <div class="prism-editor-wrapper" ref="wrapper">
       <div
-        class="prism-editor__line-width-calc"
-        style="height: 0px; visibility: hidden; pointer-events: none;"
+        class="prism-editor__line-numbers"
+        aria-hidden="true"
+        v-if="lineNumbers"
+        :style="{ 'min-height': lineNumbersHeight }"
       >
-        999
+        <div
+          class="prism-editor__line-width-calc"
+          style="height: 0px; visibility: hidden; pointer-events: none;"
+        >
+          999
+        </div>
+        <div
+          class="prism-editor__line-number token comment"
+          v-for="line in lineNumbersCount"
+          :key="line"
+        >
+          {{ line }}
+        </div>
       </div>
-      <div
-        class="prism-editor__line-number token comment"
-        v-for="line in lineNumbersCount"
-        :key="line"
-      >
-        {{ line }}
-      </div>
+      <pre
+        class="prism-editor__code"
+        :class="{ ['language-' + language]: true }"
+        ref="pre"
+        v-html="content"
+        :contenteditable="!readonly"
+        @keydown="handleKeyDown"
+        @keyup="handleKeyUp"
+        @click="handleClick"
+        spellCheck="false"
+        autocapitalize="off"
+        autocomplete="off"
+        autocorrect="off"
+        data-gramm="false"
+        v-on="$listeners"
+      ></pre>
     </div>
-    <pre
-      class="prism-editor__code"
-      :class="{ ['language-' + language]: true }"
-      ref="pre"
-      v-html="content"
-      :contenteditable="!readonly"
-      @keydown="handleKeyDown"
-      @keyup="handleKeyUp"
-      @click="handleClick"
-      spellCheck="false"
-      autocapitalize="off"
-      autocomplete="off"
-      autocorrect="off"
-      data-gramm="false"
-      v-on="$listeners"
-    ></pre>
 
+    <ul class="prism-editor__autocomplete" v-if="autocompleteOpen && autocompleteData.length" :style="{left: cursorOffset[0] + 'px', top: cursorOffset[1] + 'px'}">
+      <li
+        v-for="(suggestion, i) in autocompleteData"
+        :key="suggestion.text" :class="{selected: i == autocompleteIndex}"
+        @mousedown="acceptAutocomplete($event, i)"
+      >{{ suggestion.label || suggestion.text }}</li>
+    </ul>
   </div>
 </template>
 
@@ -83,6 +92,12 @@ export default {
       type: Boolean,
       default: false
     },
+    autocomplete: {
+      type: Function,
+      default() {
+        return []
+      }
+    }
   },
   data() {
     return {
@@ -93,7 +108,10 @@ export default {
       undoTimestamp: 0,
       lastPos: 0,
       codeData: "",
-      composing: false
+      composing: false,
+      autocompleteOpen: false,
+      autocompleteIndex: 0,
+      autocompleteData: []
     };
   },
   watch: {
@@ -122,6 +140,12 @@ export default {
         this.styleLineNumbers();
         this.setLineNumbersHeight();
       });
+    },
+    autocompleteIndex() {
+      Vue.nextTick(() => {
+        let node = this.$el.querySelector('ul.prism-editor__autocomplete > li.selected');
+        if (node) node.scrollIntoView();
+      })
     }
   },
   computed: {
@@ -135,6 +159,16 @@ export default {
         totalLines--;
       }
       return totalLines;
+    },
+    cursorOffset() {
+      let lines = this.codeData.substring(0, this.selection && this.selection.end || 0).split(/\r\n|\n/);
+      let font_size = parseFloat(getComputedStyle(this.$refs.pre).getPropertyValue('font-size'));
+      let line = lines.length;
+      let column = lines[lines.length-1].length;
+      return [
+        (column * 8.85 * (font_size / 16))    - this.$refs.wrapper.scrollLeft,
+        (line * 24.0 * (font_size / 16)) + 2  - this.$refs.wrapper.scrollTop,
+      ]
     }
   },
   updated() {
@@ -197,15 +231,22 @@ export default {
       this.setLineNumbersHeight();
     };
 
-
+    const onFocusOut = e => {
+      this.autocompleteOpen = false;
+      if (this.emitEvents) {
+        this.$emit("keydown", evt);
+      }
+    }
 
 
     const $pre = this.$refs.pre;
     $pre.addEventListener("paste", onPaste);
     $pre.addEventListener("keypress", onBracket);
+    $pre.addEventListener("focusout", onFocusOut);
     this.$once("hook:beforeDestroy", () => {
       $pre.removeEventListener("paste", onPaste);
       $pre.removeEventListener("keypress", onBracket);
+      $pre.removeEventListener("focusout", onFocusOut);
     });
     $pre.addEventListener("compositionstart", () => {
       this.composing = true;
@@ -217,6 +258,40 @@ export default {
   },
 
   methods: {
+    updateAutocompleteData() {
+      let data = this.autocomplete(this.getPlain(), this.selection.end)
+      let old_length = this.autocompleteData.length;
+      this.autocompleteData.splice(0, Infinity, ...data);
+      this.autocompleteOpen = true;
+      this.autocompleteIndex = Math.max(0, Math.min(this.autocompleteIndex, this.autocompleteData.length-1));
+      if (old_length > this.autocompleteData.length) this.autocompleteIndex = 0;
+    },
+    acceptAutocomplete(event, option = this.autocompleteIndex) {
+      event.preventDefault()
+
+      let suggestion = this.autocompleteData[option] || this.autocompleteData[0];
+      if (!suggestion) return;
+      
+      let overlap = suggestion.overlap || 0;
+      let new_text = [
+        this.code.substr(0, this.selection.end - overlap),
+        suggestion.text,
+        this.code.substring(this.selection.end),
+      ]
+      this.code = new_text.join('');
+      let cursor_pos = this.selection.end - overlap + suggestion.text.length + (suggestion.text.endsWith(')') ? -1 : 0);
+      this.selection.start = this.selection.end = cursor_pos;
+
+      const plain = this.getPlain();
+      this.recordChange(plain, this.selection);
+      this.updateContent(plain);
+      this.setLineNumbersHeight();
+      if (suggestion.text.endsWith('.')) {
+        this.updateAutocompleteData();
+      }{
+        this.autocompleteOpen = false;
+      }
+    },
     setLineNumbersHeight() {
       this.lineNumbersHeight = getComputedStyle(this.$refs.pre).height;
     },
@@ -257,6 +332,7 @@ export default {
       }
       this.undoTimestamp = 0; // Reset timestamp
       this.selection = selectionRange(this.$refs.pre);
+      this.autocompleteOpen = false;
     },
     getPlain() {
       if (this._innerHTML === this.$refs.pre.innerHTML) {
@@ -351,29 +427,56 @@ export default {
         }
 
         evt.preventDefault();
+      } else if (evt.keyCode === 27) {
+        // Escape
+        if (this.autocompleteData.length && this.autocompleteOpen) {
+          evt.preventDefault();
+          this.autocompleteOpen = false;
+        }
+      } else if (evt.keyCode === 38) {
+        // Up
+        if (this.autocompleteData.length && this.autocompleteOpen) {
+          evt.preventDefault();
+          this.autocompleteIndex = (this.autocompleteIndex ? this.autocompleteIndex : this.autocompleteData.length) - 1;
+        }
+      } else if (evt.keyCode === 40) {
+        // Down
+        if (this.autocompleteData.length && this.autocompleteOpen) {
+          evt.preventDefault();
+          this.autocompleteIndex = (this.autocompleteIndex + 1) % this.autocompleteData.length;
+        }
       } else if (evt.keyCode === 13) {
-        // Enter Key
-        const { start: cursorPos } = selectionRange(this.$refs.pre);
-        const indentation = getIndent(this.$refs.pre.innerText, cursorPos);
 
-        // https://stackoverflow.com/questions/35585421
-        // add a space and remove it. it works :/
-        document.execCommand("insertHTML", false, "\n " + indentation);
-        document.execCommand("delete", false);
+        if (this.autocompleteData.length && this.autocompleteOpen) {
+          this.acceptAutocomplete(evt);
+
+        } else {
+          // Enter Key
+          const { start: cursorPos } = selectionRange(this.$refs.pre);
+          const indentation = getIndent(this.$refs.pre.innerText, cursorPos);
+
+          // https://stackoverflow.com/questions/35585421
+          // add a space and remove it. it works :/
+          document.execCommand("insertHTML", false, "\n " + indentation);
+          document.execCommand("delete", false);
+        }
 
         evt.preventDefault();
       } else if (
-        // Undo / Redo
+        // Undo
         evt.keyCode === 90 &&
         evt.metaKey !== evt.ctrlKey &&
         !evt.altKey
       ) {
-        if (evt.shiftKey) {
-          this.redo();
-        } else {
-          this.undo();
-        }
-
+        this.undo();
+        evt.preventDefault();
+      } else if (
+        // Redo
+        evt.keyCode === 89 &&
+        evt.metaKey !== evt.ctrlKey &&
+        !evt.altKey
+      ) {
+        this.redo();
         evt.preventDefault();
       }
     },
@@ -415,11 +518,16 @@ export default {
 
       this.selection = selectionRange(this.$refs.pre);
 
+
       if (!Object.values(FORBIDDEN_KEYS).includes(evt.keyCode)) {
         const plain = this.getPlain();
 
         this.recordChange(plain, this.selection);
         this.updateContent(plain);
+
+        if (evt.keyCode !== 13) {
+          this.updateAutocompleteData()
+        }
       } else {
         this.undoTimestamp = 0;
       }
@@ -433,12 +541,20 @@ export default {
   font-family: inherit;
   line-height: inherit;
 }
+.prism-editor-component {
+	width: 100%;
+	height: auto;
+  max-height: 100%;
+	display: -webkit-box;
+	display: -ms-flexbox;
+	display: flex;
+  align-items: flex-start;
+  position: relative;
+}
 .prism-editor-wrapper {
   /* position: absolute; */
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: flex-start;
   overflow: auto;
   tab-size: 1.5em;
   -moz-tab-size: 1.5em;
@@ -454,6 +570,24 @@ export default {
   /* padding: 0 3px 0 5px; */
   text-align: right;
   white-space: nowrap;
+}
+
+.prism-editor__autocomplete {
+  position: absolute;
+  min-width: 100px;
+  width: 100%;
+  max-width: 250px;
+  top: 25px;
+  min-height: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  z-index: 4;
+}
+.prism-editor__autocomplete li {
+	overflow: hidden;
+	white-space: nowrap;
+	padding: 1px 5px;
+  cursor: pointer;
 }
 
 .prism-editor__code {
