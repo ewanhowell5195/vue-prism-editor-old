@@ -21,6 +21,7 @@
           {{ line }}
         </div>
       </div>
+      <div class="prism-editor-placeholder" v-if="placeholder && !codeData">{{ placeholder }}</div>
       <pre
         class="prism-editor__code"
         :class="{ ['language-' + language]: true }"
@@ -88,6 +89,10 @@ export default {
       type: String,
       default: ""
     },
+    placeholder: {
+      type: String,
+      default: ""
+    },
     ignoreTabKey: {
       type: Boolean,
       default: false
@@ -144,7 +149,7 @@ export default {
     autocompleteIndex() {
       Vue.nextTick(() => {
         let node = this.$el.querySelector('ul.prism-editor__autocomplete > li.selected');
-        if (node) node.scrollIntoView();
+        if (node) node.scrollIntoView({block: 'nearest'});
       })
     }
   },
@@ -287,8 +292,10 @@ export default {
       this.updateContent(plain);
       this.setLineNumbersHeight();
       if (suggestion.text.endsWith('.')) {
-        this.updateAutocompleteData();
-      }{
+        setTimeout(() => {
+          this.updateAutocompleteData();
+        }, 1);
+      } else {
         this.autocompleteOpen = false;
       }
     },
@@ -403,8 +410,9 @@ export default {
       if (this.emitEvents) {
         this.$emit("keydown", evt);
       }
-
-      if (evt.keyCode === 9 && !this.ignoreTabKey) {
+      if (evt.keyCode === 9 && this.autocompleteData.length && this.autocompleteOpen) {
+          this.acceptAutocomplete(evt);
+      } else if (evt.keyCode === 9 && !this.ignoreTabKey) {
         document.execCommand("insertHTML", false, "  ");
         evt.preventDefault();
       } else if (evt.keyCode === 8) {
@@ -525,7 +533,7 @@ export default {
         this.recordChange(plain, this.selection);
         this.updateContent(plain);
 
-        if (evt.keyCode !== 13) {
+        if (evt.keyCode !== 13 && evt.keyCode !== 9) {
           this.updateAutocompleteData()
         }
       } else {
@@ -552,12 +560,26 @@ export default {
   position: relative;
 }
 .prism-editor-wrapper {
-  /* position: absolute; */
   width: 100%;
   height: 100%;
+  display: flex;
   overflow: auto;
   tab-size: 1.5em;
   -moz-tab-size: 1.5em;
+}
+.prism-editor-wrapper pre {
+  display: inline-block;
+  width: 100%;
+}
+div.prism-editor-wrapper .prism-editor-placeholder {
+  color: #6f7276;
+  pointer-events: none;
+  width: 0px;
+  overflow: visible;
+  display: inline-block;
+}
+div.prism-editor-wrapper:focus-within .prism-editor-placeholder {
+  visibility: hidden;
 }
 .prism-editor__line-numbers {
   height: 100%;
