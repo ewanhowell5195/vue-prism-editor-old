@@ -171,8 +171,8 @@ export default {
       let line = lines.length;
       let column = lines[lines.length-1].length;
       return [
-        (column * 8.85 * (font_size / 16))    - this.$refs.wrapper.scrollLeft,
-        (line * 24.0 * (font_size / 16)) + 2  - this.$refs.wrapper.scrollTop,
+        (column * 8.85 * (font_size / 16))    - this.$refs.wrapper.scrollLeft + this.$refs.pre.firstChild.offsetLeft,
+        (line * 24.0 * (font_size / 16)) + 2  - this.$refs.wrapper.scrollTop + this.$refs.pre.firstChild.offsetTop,
       ]
     }
   },
@@ -220,19 +220,18 @@ export default {
       event.preventDefault()
 
       let new_text = [
-        this.code.substr(0, this.selection.start),
+        this.codeData.substr(0, this.selection.start),
         char,
-        this.code.substring(this.selection.start, this.selection.end),
+        this.codeData.substring(this.selection.start, this.selection.end),
         Brackets[char],
-        this.code.substring(this.selection.end),
+        this.codeData.substring(this.selection.end),
       ]
-      this.code = new_text.join('');
+      this.codeData = new_text.join('');
       this.selection.start += 1;
       this.selection.end += 1;
 
-      const plain = this.getPlain();
-      this.recordChange(plain, this.selection);
-      this.updateContent(plain);
+      this.recordChange(this.codeData, this.selection);
+      this.updateContent(this.codeData);
       this.setLineNumbersHeight();
     };
 
@@ -279,15 +278,15 @@ export default {
       
       let overlap = suggestion.overlap || 0;
       let new_text = [
-        this.code.substr(0, this.selection.end - overlap),
+        this.codeData.substr(0, this.selection.end - overlap),
         suggestion.text,
-        this.code.substring(this.selection.end),
+        this.codeData.substring(this.selection.end),
       ]
-      this.code = new_text.join('');
+      this.codeData = new_text.join('');
       let cursor_pos = this.selection.end - overlap + suggestion.text.length + (suggestion.text.endsWith(')') ? -1 : 0);
       this.selection.start = this.selection.end = cursor_pos;
 
-      const plain = this.getPlain();
+      const plain = this.codeData;
       this.recordChange(plain, this.selection);
       this.updateContent(plain);
       this.setLineNumbersHeight();
@@ -412,6 +411,8 @@ export default {
       }
       if (evt.keyCode === 9 && this.autocompleteData.length && this.autocompleteOpen) {
           this.acceptAutocomplete(evt);
+          evt.preventDefault();
+          evt.stopPropagation();
       } else if (evt.keyCode === 9 && !this.ignoreTabKey) {
         document.execCommand("insertHTML", false, "  ");
         evt.preventDefault();
@@ -455,11 +456,11 @@ export default {
         }
       } else if (evt.keyCode === 13) {
 
+        // Enter Key
         if (this.autocompleteData.length && this.autocompleteOpen) {
           this.acceptAutocomplete(evt);
 
         } else {
-          // Enter Key
           const { start: cursorPos } = selectionRange(this.$refs.pre);
           const indentation = getIndent(this.$refs.pre.innerText, cursorPos);
 
@@ -533,11 +534,11 @@ export default {
         this.recordChange(plain, this.selection);
         this.updateContent(plain);
 
-        if (evt.keyCode !== 13 && evt.keyCode !== 9) {
-          this.updateAutocompleteData()
-        }
       } else {
         this.undoTimestamp = 0;
+      }
+      if (evt.keyCode !== 13 && evt.keyCode !== 9) {
+        this.updateAutocompleteData()
       }
     }
   }
