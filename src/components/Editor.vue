@@ -1,6 +1,6 @@
 <template>
   <div class="prism-editor-component">
-    <div class="prism-editor-wrapper" ref="wrapper">
+    <div class="prism-editor-wrapper" :class="{capture_tab_key: !ignoreTabKey}" ref="wrapper">
       <div
         class="prism-editor__line-numbers"
         aria-hidden="true"
@@ -265,7 +265,14 @@ export default {
     updateAutocompleteData() {
       let data = this.autocomplete(this.getPlain(), this.selection.end)
       let old_length = this.autocompleteData.length;
-      this.autocompleteData.splice(0, Infinity, ...data);
+      this.autocompleteData.splice(0, Infinity);
+      // Deduplicate
+      let added = new Set();
+      for (let entry of data) {
+        if (added.has(entry.text)) continue;
+        this.autocompleteData.push(entry);
+        added.add(entry.text);
+      }
       this.autocompleteOpen = true;
       this.autocompleteIndex = Math.max(0, Math.min(this.autocompleteIndex, this.autocompleteData.length-1));
       if (old_length > this.autocompleteData.length) this.autocompleteIndex = 0;
@@ -537,7 +544,8 @@ export default {
       } else {
         this.undoTimestamp = 0;
       }
-      if (evt.keyCode !== 13 && evt.keyCode !== 9) {
+      let action_keys = [13, 9, 27, 37, 38, 39, 40];
+      if (action_keys.includes(evt.keyCode) == false) {
         this.updateAutocompleteData()
       }
     }
