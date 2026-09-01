@@ -15,6 +15,10 @@ function position(el, pos) {
     clone.setStart(range.startContainer, range.startOffset);
     indexes.start = indexes.end - clone.toString().length;
     indexes.atStart = clone.startOffset === 0;
+    indexes.backwards =
+      !selection.isCollapsed &&
+      (selection.anchorNode !== range.startContainer ||
+        selection.anchorOffset !== range.startOffset);
     indexes.commonAncestorContainer = clone.commonAncestorContainer;
     indexes.endContainer = clone.endContainer;
     indexes.startContainer = clone.startContainer;
@@ -54,17 +58,24 @@ function position(el, pos) {
     // Set end point of selection
     if (setSelection && length >= end) {
       range.setEnd(next, end - olen);
-      makeSelection(el, range);
+      makeSelection(el, range, pos.backwards);
       break;
     }
   }
 }
 
-function makeSelection(el, range) {
+function makeSelection(el, range, backwards) {
   var selection = window.getSelection();
   el.focus();
   selection.removeAllRanges();
-  selection.addRange(range);
+  if (backwards && selection.extend) {
+    let reversed = range.cloneRange();
+    reversed.collapse(false);
+    selection.addRange(reversed);
+    selection.extend(range.startContainer, range.startOffset);
+  } else {
+    selection.addRange(range);
+  }
 }
 
 export default position;
